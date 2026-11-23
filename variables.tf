@@ -221,3 +221,49 @@ variable "vpc_service_controls" {
     error_message = "Each ingress rule needs either identities or an identity_type (ANY_IDENTITY, ANY_USER_ACCOUNT or ANY_SERVICE_ACCOUNT), at least one source and at least one operation."
   }
 }
+
+variable "model_armor" {
+  description = <<-EOT
+    The project's Model Armour floor setting, screening the integrated services' traffic and replacing the organisation's floor setting's filters, which it should repeat,
+    e.g. with the `model_armor` output of cf-organization; neither set nor the Model Armor API enabled when null:
+    `enforcement`, whether the floor setting is enforced, without which it screens nothing;
+    `integrated_services`, the screening mode, `INSPECT_AND_BLOCK` or `INSPECT_ONLY`, by integrated service: `AI_PLATFORM` (Agent Platform) and `GOOGLE_MCP_SERVER`;
+    `cloud_logging`, whether the screening results are logged;
+    `confidence_level`, the confidence level of the Responsible AI and the prompt injection and jailbreak filters: `LOW_AND_ABOVE`, `MEDIUM_AND_ABOVE` or `HIGH`;
+    `responsible_ai_filters`, the Responsible AI filters: `SEXUALLY_EXPLICIT`, `HATE_SPEECH`, `HARASSMENT` or `DANGEROUS`;
+    `prompt_injection_and_jailbreak`, `malicious_uri` and `sensitive_data_protection` (basic configuration), whether these filters are enabled;
+    `multi_language_detection`, whether prompts and responses are screened in all supported languages.
+  EOT
+  type = object({
+    enforcement                    = optional(bool, true)
+    integrated_services            = optional(map(string), { AI_PLATFORM = "INSPECT_AND_BLOCK", GOOGLE_MCP_SERVER = "INSPECT_AND_BLOCK" })
+    cloud_logging                  = optional(bool, false)
+    confidence_level               = optional(string, "MEDIUM_AND_ABOVE")
+    responsible_ai_filters         = optional(list(string), ["DANGEROUS", "HARASSMENT", "HATE_SPEECH", "SEXUALLY_EXPLICIT"])
+    prompt_injection_and_jailbreak = optional(bool, true)
+    malicious_uri                  = optional(bool, true)
+    sensitive_data_protection      = optional(bool, true)
+    multi_language_detection       = optional(bool, true)
+  })
+  default = {}
+
+  validation {
+    condition = var.model_armor == null || try(
+      length(var.model_armor.integrated_services) > 0 &&
+      length(setsubtract(keys(var.model_armor.integrated_services), ["AI_PLATFORM", "GOOGLE_MCP_SERVER"])) == 0 &&
+      length(setsubtract(values(var.model_armor.integrated_services), ["INSPECT_AND_BLOCK", "INSPECT_ONLY"])) == 0,
+      false
+    )
+    error_message = "The model_armor integrated_services must map AI_PLATFORM or GOOGLE_MCP_SERVER, at least one, to INSPECT_AND_BLOCK or INSPECT_ONLY."
+  }
+
+  validation {
+    condition     = var.model_armor == null || contains(["LOW_AND_ABOVE", "MEDIUM_AND_ABOVE", "HIGH"], try(var.model_armor.confidence_level, ""))
+    error_message = "The model_armor confidence_level must be LOW_AND_ABOVE, MEDIUM_AND_ABOVE or HIGH."
+  }
+
+  validation {
+    condition     = var.model_armor == null || try(alltrue([for filter in var.model_armor.responsible_ai_filters : contains(["SEXUALLY_EXPLICIT", "HATE_SPEECH", "HARASSMENT", "DANGEROUS"], filter)]), false)
+    error_message = "Each model_armor Responsible AI filter must be SEXUALLY_EXPLICIT, HATE_SPEECH, HARASSMENT or DANGEROUS."
+  }
+}

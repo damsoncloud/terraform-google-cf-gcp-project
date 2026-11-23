@@ -370,3 +370,94 @@ run "invalid_perimeter" {
 
   expect_failures = [var.vpc_service_controls]
 }
+
+run "model_armor" {
+  assert {
+    condition = (
+      google_project_service.model_armor[0].service == "modelarmor.googleapis.com" &&
+      google_model_armor_floorsetting.project[0].parent == "projects/prod-backend-e5f6" &&
+      google_model_armor_floorsetting.project[0].location == "global" &&
+      google_model_armor_floorsetting.project[0].enable_floor_setting_enforcement &&
+      toset(google_model_armor_floorsetting.project[0].integrated_services) == toset(["AI_PLATFORM", "GOOGLE_MCP_SERVER"])
+    )
+    error_message = "The project must get an enforced floor setting for the Agent Platform and Google MCP servers, with the Model Armor API enabled."
+  }
+
+  assert {
+    condition = (
+      google_model_armor_floorsetting.project[0].ai_platform_floor_setting[0].inspect_and_block &&
+      google_model_armor_floorsetting.project[0].ai_platform_floor_setting[0].inspect_only == null &&
+      !google_model_armor_floorsetting.project[0].ai_platform_floor_setting[0].enable_cloud_logging &&
+      google_model_armor_floorsetting.project[0].google_mcp_server_floor_setting[0].inspect_and_block
+    )
+    error_message = "Both integrated services must be screened in inspect and block mode without logging by default."
+  }
+
+  assert {
+    condition = (
+      length(google_model_armor_floorsetting.project[0].filter_config[0].rai_settings[0].rai_filters) == 4 &&
+      alltrue([for filter in google_model_armor_floorsetting.project[0].filter_config[0].rai_settings[0].rai_filters : filter.confidence_level == "MEDIUM_AND_ABOVE"]) &&
+      google_model_armor_floorsetting.project[0].filter_config[0].pi_and_jailbreak_filter_settings[0].filter_enforcement == "ENABLED" &&
+      google_model_armor_floorsetting.project[0].filter_config[0].malicious_uri_filter_settings[0].filter_enforcement == "ENABLED" &&
+      google_model_armor_floorsetting.project[0].filter_config[0].sdp_settings[0].basic_config[0].filter_enforcement == "ENABLED" &&
+      google_model_armor_floorsetting.project[0].floor_setting_metadata[0].multi_language_detection[0].enable_multi_language_detection
+    )
+    error_message = "The floor setting must have the organisation's default filters."
+  }
+}
+
+run "model_armor_custom" {
+  command = plan
+
+  variables {
+    model_armor = {
+      enforcement                    = false
+      integrated_services            = { AI_PLATFORM = "INSPECT_ONLY" }
+      cloud_logging                  = true
+      confidence_level               = "HIGH"
+      responsible_ai_filters         = []
+      prompt_injection_and_jailbreak = false
+    }
+  }
+
+  assert {
+    condition = (
+      !google_model_armor_floorsetting.project[0].enable_floor_setting_enforcement &&
+      google_model_armor_floorsetting.project[0].integrated_services == tolist(["AI_PLATFORM"]) &&
+      google_model_armor_floorsetting.project[0].ai_platform_floor_setting[0].inspect_only &&
+      google_model_armor_floorsetting.project[0].ai_platform_floor_setting[0].enable_cloud_logging &&
+      length(google_model_armor_floorsetting.project[0].google_mcp_server_floor_setting) == 0 &&
+      length(google_model_armor_floorsetting.project[0].filter_config[0].rai_settings) == 0 &&
+      google_model_armor_floorsetting.project[0].filter_config[0].pi_and_jailbreak_filter_settings[0].filter_enforcement == "DISABLED" &&
+      google_model_armor_floorsetting.project[0].filter_config[0].pi_and_jailbreak_filter_settings[0].confidence_level == "HIGH"
+    )
+    error_message = "The floor setting must follow the given filters, integrated services and logging."
+  }
+}
+
+run "no_model_armor" {
+  command = plan
+
+  variables {
+    model_armor = null
+  }
+
+  assert {
+    condition     = length(google_model_armor_floorsetting.project) == 0 && length(google_project_service.model_armor) == 0
+    error_message = "No floor setting must be set, nor the Model Armor API enabled, when model_armor is null."
+  }
+}
+
+run "invalid_model_armor" {
+  command = plan
+
+  variables {
+    model_armor = {
+      integrated_services    = { VERTEX_AI = "BLOCK" }
+      confidence_level       = "VERY_HIGH"
+      responsible_ai_filters = ["VIOLENCE"]
+    }
+  }
+
+  expect_failures = [var.model_armor]
+}
