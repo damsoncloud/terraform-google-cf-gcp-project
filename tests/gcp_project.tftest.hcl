@@ -4,6 +4,12 @@ mock_provider "google" {
       number = "444444444444"
     }
   }
+
+  mock_resource "google_billing_budget" {
+    defaults = {
+      name = "billingAccounts/012345-6789AB-CDEF01/budgets/0a1b2c3d-0000-0000-0000-000000000000"
+    }
+  }
 }
 
 mock_provider "random" {
@@ -22,11 +28,12 @@ variables {
     common        = { id = "folders/111111111111", short_name = "cmn", common = true }
     legacy        = { id = "folders/100000000004" }
   }
-  environment              = "production"
-  name                     = "backend"
-  billing_account          = "012345-6789AB-CDEF01"
-  observability_project_id = "cmn-observability-c3d4"
-  labels                   = { component = "backend", department = "engineering", owner = "team-backend" }
+  environment                  = "production"
+  name                         = "backend"
+  billing_account              = "012345-6789AB-CDEF01"
+  observability_project_id     = "cmn-observability-c3d4"
+  billing_notification_channel = "projects/cmn-observability-c3d4/notificationChannels/1234567890"
+  labels                       = { component = "backend", department = "engineering", owner = "team-backend" }
 }
 
 run "project" {
@@ -112,6 +119,70 @@ run "essential_contacts" {
     )
     error_message = "The essential contacts must be created on the project with their categories."
   }
+}
+
+run "budget" {
+  assert {
+    condition = (
+      google_billing_budget.project.billing_account == "012345-6789AB-CDEF01" &&
+      google_billing_budget.project.display_name == "prod-backend-e5f6" &&
+      google_billing_budget.project.budget_filter[0].projects == toset(["projects/444444444444"]) &&
+      google_billing_budget.project.amount[0].specified_amount[0].units == "100" &&
+      [for rule in google_billing_budget.project.threshold_rules : rule.threshold_percent] == [0.5, 0.7, 1.0] &&
+      google_billing_budget.project.all_updates_rule[0].monitoring_notification_channels == tolist(["projects/cmn-observability-c3d4/notificationChannels/1234567890"]) &&
+      google_billing_budget.project.all_updates_rule[0].pubsub_topic == null &&
+      output.budget == "billingAccounts/012345-6789AB-CDEF01/budgets/0a1b2c3d-0000-0000-0000-000000000000"
+    )
+    error_message = "The project must get a budget of 100 with alerts at 50%, 70% and 100% to the billing administrators, not published to a topic by default."
+  }
+
+  assert {
+    condition     = length(google_project_iam_member.billing_disabler) == 0
+    error_message = "The billing disabler must not get any role by default."
+  }
+}
+
+run "billing_disabler" {
+  variables {
+    budget = { amount = 250, thresholds = [0.9, 1.0] }
+    billing_disabler = {
+      topic         = "projects/cmn-observability-c3d4/topics/cmn-cf-billing-disabler"
+      email         = "billing-disabler@cmn-observability-c3d4.iam.gserviceaccount.com"
+      project_roles = ["roles/billing.projectManager", "roles/browser"]
+    }
+  }
+
+  assert {
+    condition = (
+      google_billing_budget.project.amount[0].specified_amount[0].units == "250" &&
+      [for rule in google_billing_budget.project.threshold_rules : rule.threshold_percent] == [0.9, 1.0] &&
+      google_billing_budget.project.all_updates_rule[0].pubsub_topic == "projects/cmn-observability-c3d4/topics/cmn-cf-billing-disabler" &&
+      google_billing_budget.project.all_updates_rule[0].schema_version == "1.0"
+    )
+    error_message = "The budget must have the given amount and thresholds and publish its notifications to the billing disabler's topic."
+  }
+
+  assert {
+    condition = (
+      toset(keys(google_project_iam_member.billing_disabler)) == toset(["roles/billing.projectManager", "roles/browser"]) &&
+      alltrue([for binding in google_project_iam_member.billing_disabler :
+        binding.project == "prod-backend-e5f6" && binding.member == "serviceAccount:billing-disabler@cmn-observability-c3d4.iam.gserviceaccount.com"
+      ])
+    )
+    error_message = "The billing disabler's service account must get its project roles."
+  }
+}
+
+run "invalid_billing" {
+  command = plan
+
+  variables {
+    billing_notification_channel = "billing-admins"
+    budget                       = { amount = 10.5, thresholds = [] }
+    billing_disabler             = { topic = "cmn-cf-billing-disabler", email = "billing-disabler@cmn-observability-c3d4.iam.gserviceaccount.com", project_roles = [] }
+  }
+
+  expect_failures = [var.billing_notification_channel, var.budget, var.billing_disabler]
 }
 
 run "too_long_project_id" {

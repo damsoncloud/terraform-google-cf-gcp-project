@@ -3,7 +3,10 @@
 Terraform module of the Damson Cloud GCP Cloud Foundations creating a single workload project:
 
 * the project in its environment's folder, with a generated `<environment short name>-<name>-<suffix>` ID, its APIs, labels and essential contacts,
-* the project's membership of the Observability project's metrics scope.
+* the project's membership of the Observability project's metrics scope,
+* the project's budget, alerting the billing administrators,
+* optionally, the [billing disabler](https://github.com/damsoncloud/gcp.billing-disabler) deployed by cf-observability: the budget's notifications are published to its topic
+  and its service account gets its roles on the project.
 
 The calling configuration iterates over its projects.
 
@@ -14,11 +17,12 @@ module "gcp_project" {
   source  = "damsoncloud/cf-gcp-project/google"
   version = "X.Y.Z"
 
-  folders                  = module.hierarchy.folders
-  environment              = "production"
-  name                     = "backend"
-  billing_account          = "012345-6789AB-CDEF01"
-  observability_project_id = module.organization.observability_project_id
+  folders                      = module.hierarchy.folders
+  environment                  = "production"
+  name                         = "backend"
+  billing_account              = "012345-6789AB-CDEF01"
+  observability_project_id     = module.organization.observability_project_id
+  billing_notification_channel = module.organization.billing_notification_channel
 
   services = ["run.googleapis.com"]
   labels   = { component = "backend", department = "engineering", owner = "team-backend" }
@@ -35,6 +39,9 @@ Pin an exact version. New versions are published as immutable GitHub releases wi
 | Name | Description | Type | Default | Required |
 | ---- | ----------- | ---- | ------- | :------: |
 | billing\_account | ID of the billing account of the project and its budget, e.g. `012345-6789AB-CDEF01`. | `string` | n/a | yes |
+| billing\_disabler | The billing disabler, disabling the project's billing when its budget is exceeded; not enabled when null:   `topic`, the topic of its budget notifications, e.g. the `billing_disabler_topic` output of cf-observability;   `email`, its service account, e.g. the `billing_disabler_email` output of cf-organization;   `project_roles`, the service account's roles on the project, e.g. the `billing_disabler_project_roles` output of cf-organization. | ```object({ topic = string email = string project_roles = list(string) })``` | `null` | no |
+| billing\_notification\_channel | ID of the notification channel of the billing administrators, notified of the budget's alerts, e.g. the `billing_notification_channel` output of cf-organization. | `string` | n/a | yes |
+| budget | The project's budget: `amount`, in the billing account's currency; `thresholds`, the fractions of the amount alerting the billing administrators. | ```object({ amount = optional(number, 100) thresholds = optional(list(number), [0.5, 0.7, 1.0]) })``` | `{}` | no |
 | deletion\_policy | Whether Terraform can delete the project: `PREVENT`, `ABANDON` (removed from the state only) or `DELETE`. | `string` | `"PREVENT"` | no |
 | display\_name | Display name of the project; its ID when null. | `string` | `null` | no |
 | environment | Name of the environment folder of the project, a key of `folders` with a short name, e.g. `production`. The short name prefixes the generated project ID and is the project's `environment` label. | `string` | n/a | yes |
@@ -51,6 +58,7 @@ Pin an exact version. New versions are published as immutable GitHub releases wi
 
 | Name | Description |
 | ---- | ----------- |
+| budget | Resource name of the project's budget (`billingAccounts/<id>/budgets/<id>`). |
 | project\_id | ID of the project. |
 | project\_number | Number of the project. |
 <!-- markdownlint-restore -->

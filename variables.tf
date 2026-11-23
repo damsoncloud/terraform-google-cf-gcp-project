@@ -120,3 +120,53 @@ variable "essential_contacts_language" {
   default     = "en-GB"
   nullable    = false
 }
+
+variable "billing_notification_channel" {
+  description = "ID of the notification channel of the billing administrators, notified of the budget's alerts, e.g. the `billing_notification_channel` output of cf-organization."
+  type        = string
+
+  validation {
+    condition     = can(regex("^projects/[^/]+/notificationChannels/[0-9]+$", var.billing_notification_channel))
+    error_message = "The billing_notification_channel must be `projects/<project>/notificationChannels/<id>`."
+  }
+}
+
+variable "budget" {
+  description = "The project's budget: `amount`, in the billing account's currency; `thresholds`, the fractions of the amount alerting the billing administrators."
+  type = object({
+    amount     = optional(number, 100)
+    thresholds = optional(list(number), [0.5, 0.7, 1.0])
+  })
+  default  = {}
+  nullable = false
+
+  validation {
+    condition     = var.budget.amount > 0 && floor(var.budget.amount) == var.budget.amount
+    error_message = "The budget amount must be a positive whole number."
+  }
+
+  validation {
+    condition     = length(var.budget.thresholds) > 0 && alltrue([for threshold in var.budget.thresholds : threshold > 0])
+    error_message = "The budget needs at least one threshold, each greater than 0."
+  }
+}
+
+variable "billing_disabler" {
+  description = <<-EOT
+  The billing disabler, disabling the project's billing when its budget is exceeded; not enabled when null:
+    `topic`, the topic of its budget notifications, e.g. the `billing_disabler_topic` output of cf-observability;
+    `email`, its service account, e.g. the `billing_disabler_email` output of cf-organization;
+    `project_roles`, the service account's roles on the project, e.g. the `billing_disabler_project_roles` output of cf-organization.
+  EOT
+  type = object({
+    topic         = string
+    email         = string
+    project_roles = list(string)
+  })
+  default = null
+
+  validation {
+    condition     = var.billing_disabler == null || can(regex("^projects/[^/]+/topics/[^/]+$", var.billing_disabler.topic))
+    error_message = "The billing_disabler topic must be `projects/<project>/topics/<name>`."
+  }
+}
