@@ -236,3 +236,137 @@ run "invalid_labels" {
 
   expect_failures = [var.labels]
 }
+
+run "no_perimeter" {
+  command = plan
+
+  assert {
+    condition = (
+      length(google_access_context_manager_service_perimeter_resource.project) == 0 &&
+      length(google_access_context_manager_service_perimeter_dry_run_resource.project) == 0 &&
+      !output.perimeter_member
+    )
+    error_message = "The project must not be added to a perimeter by default."
+  }
+}
+
+run "perimeter_dry_run" {
+  variables {
+    vpc_service_controls = {
+      perimeter_name = "accessPolicies/555555555555/servicePerimeters/cloud_foundations_production"
+      ingress_rules = {
+        "Partner uploads" = {
+          identities           = ["serviceAccount:uploader@partner-project.iam.gserviceaccount.com"]
+          source_access_levels = ["partner_network"]
+          operations           = { "storage.googleapis.com" = ["google.storage.objects.create"] }
+        }
+        "Support engineers" = {
+          identity_type = "ANY_USER_ACCOUNT"
+        }
+      }
+    }
+  }
+
+  assert {
+    condition = (
+      output.perimeter_member &&
+      google_access_context_manager_service_perimeter_resource.project[0].perimeter_name == "accessPolicies/555555555555/servicePerimeters/cloud_foundations_production" &&
+      google_access_context_manager_service_perimeter_resource.project[0].resource == "projects/444444444444" &&
+      google_access_context_manager_service_perimeter_dry_run_resource.project[0].resource == "projects/444444444444"
+    )
+    error_message = "A production project must be added to both configurations of the perimeter."
+  }
+
+  assert {
+    condition = (
+      length(google_access_context_manager_service_perimeter_ingress_policy.rules) == 0 &&
+      toset(keys(google_access_context_manager_service_perimeter_dry_run_ingress_policy.rules)) == toset(["prod-backend-e5f6: Partner uploads", "prod-backend-e5f6: Support engineers"])
+    )
+    error_message = "In dry-run mode, the project's ingress rules must be added to the dry-run configuration only, with titles prefixed by the project ID."
+  }
+
+  assert {
+    condition = (
+      google_access_context_manager_service_perimeter_dry_run_ingress_policy.rules["prod-backend-e5f6: Partner uploads"].ingress_from[0].sources[0].access_level == "accessPolicies/555555555555/accessLevels/partner_network" &&
+      google_access_context_manager_service_perimeter_dry_run_ingress_policy.rules["prod-backend-e5f6: Partner uploads"].ingress_to[0].resources == tolist(["projects/444444444444"]) &&
+      google_access_context_manager_service_perimeter_dry_run_ingress_policy.rules["prod-backend-e5f6: Partner uploads"].ingress_to[0].operations[0].service_name == "storage.googleapis.com" &&
+      google_access_context_manager_service_perimeter_dry_run_ingress_policy.rules["prod-backend-e5f6: Partner uploads"].ingress_to[0].operations[0].method_selectors[0].method == "google.storage.objects.create" &&
+      google_access_context_manager_service_perimeter_dry_run_ingress_policy.rules["prod-backend-e5f6: Support engineers"].ingress_from[0].identity_type == "ANY_USER_ACCOUNT" &&
+      google_access_context_manager_service_perimeter_dry_run_ingress_policy.rules["prod-backend-e5f6: Support engineers"].ingress_from[0].sources[0].access_level == "*" &&
+      google_access_context_manager_service_perimeter_dry_run_ingress_policy.rules["prod-backend-e5f6: Support engineers"].ingress_to[0].operations[0].service_name == "*" &&
+      length(google_access_context_manager_service_perimeter_dry_run_ingress_policy.rules["prod-backend-e5f6: Support engineers"].ingress_to[0].operations[0].method_selectors) == 0
+    )
+    error_message = "The ingress rules must resolve the access level names and allow the given operations into the project only."
+  }
+}
+
+run "perimeter_enforced" {
+  variables {
+    environment = "common"
+    vpc_service_controls = {
+      perimeter_name = "accessPolicies/555555555555/servicePerimeters/cloud_foundations_production"
+      mode           = "enforced"
+      ingress_rules = {
+        "Partner uploads" = {
+          identities = ["serviceAccount:uploader@partner-project.iam.gserviceaccount.com"]
+        }
+      }
+    }
+  }
+
+  assert {
+    condition = (
+      length(google_access_context_manager_service_perimeter_resource.project) == 1 &&
+      toset(keys(google_access_context_manager_service_perimeter_ingress_policy.rules)) == toset(["cmn-backend-e5f6: Partner uploads"]) &&
+      toset(keys(google_access_context_manager_service_perimeter_dry_run_ingress_policy.rules)) == toset(["cmn-backend-e5f6: Partner uploads"])
+    )
+    error_message = "In enforced mode, a common project's ingress rules must be added to both configurations."
+  }
+}
+
+run "outside_perimeter" {
+  command = plan
+
+  variables {
+    environment = "development"
+    vpc_service_controls = {
+      perimeter_name = "accessPolicies/555555555555/servicePerimeters/cloud_foundations_production"
+      mode           = "enforced"
+      ingress_rules = {
+        "Partner uploads" = {
+          identities = ["serviceAccount:uploader@partner-project.iam.gserviceaccount.com"]
+        }
+      }
+    }
+  }
+
+  assert {
+    condition = (
+      !output.perimeter_member &&
+      length(google_access_context_manager_service_perimeter_resource.project) == 0 &&
+      length(google_access_context_manager_service_perimeter_dry_run_resource.project) == 0 &&
+      length(google_access_context_manager_service_perimeter_ingress_policy.rules) == 0 &&
+      length(google_access_context_manager_service_perimeter_dry_run_ingress_policy.rules) == 0
+    )
+    error_message = "A project of an environment outside the perimeter must be added neither to it nor to its rules."
+  }
+}
+
+run "invalid_perimeter" {
+  command = plan
+
+  variables {
+    vpc_service_controls = {
+      perimeter_name = "cloud_foundations_production"
+      mode           = "strict"
+      environments   = ["staging"]
+      ingress_rules = {
+        "No identity"  = {}
+        "Both"         = { identities = ["user:jane@example.com"], identity_type = "ANY_IDENTITY" }
+        "No operation" = { identity_type = "ANY_IDENTITY", operations = {} }
+      }
+    }
+  }
+
+  expect_failures = [var.vpc_service_controls]
+}

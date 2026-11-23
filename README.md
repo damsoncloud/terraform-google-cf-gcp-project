@@ -6,7 +6,9 @@ Terraform module of the Damson Cloud GCP Cloud Foundations creating a single wor
 * the project's membership of the Observability project's metrics scope,
 * the project's budget, alerting the billing administrators,
 * optionally, the [billing disabler](https://github.com/damsoncloud/gcp.billing-disabler) deployed by cf-observability: the budget's notifications are published to its topic
-  and its service account gets its roles on the project.
+  and its service account gets its roles on the project,
+* optionally, for a project in the production or common environment, its membership of the VPC Service Controls perimeter of cf-organization and the ingress rules of its
+  integrations, in the perimeter's dry-run or enforced mode.
 
 The calling configuration iterates over its projects.
 
@@ -53,12 +55,14 @@ Pin an exact version. New versions are published as immutable GitHub releases wi
 | observability\_project\_id | ID of the Observability project, e.g. the `observability_project_id` output of cf-organization, whose metrics scope the project is added to. | `string` | n/a | yes |
 | project\_id | ID of the project, replacing the generated one, e.g. to follow another naming pattern or to keep the ID of an existing project. | `string` | `null` | no |
 | services | APIs enabled in the project, e.g. `run.googleapis.com`. They are left enabled when removed from the list. | `list(string)` | `[]` | no |
+| vpc\_service\_controls | The VPC Service Controls perimeter of the production and common environments, e.g. of cf-organization's vpc-service-controls submodule; not used when null:   `perimeter_name`, the perimeter's resource name, e.g. the submodule's `perimeter_name` output;   `mode`, the submodule's mode: the ingress rules are added to the dry-run configuration, and to the enforced one too when `enforced`;   `environments`, the folder names of the environments in the perimeter, to whose configurations the project is added when it is in one of them;   `ingress_rules`, the project's ingress rules, e.g. of its integrations, by title, added when the project is in the perimeter:     `identities` or `identity_type` (`ANY_IDENTITY`, `ANY_USER_ACCOUNT` or `ANY_SERVICE_ACCOUNT`), the principals allowed;     `source_access_levels`, the names of the access policy's access levels or `*` for any source, and `source_resources`, e.g. `projects/<number>`;     `operations`, the methods by service into the project, `*` for all services, and all methods of a service when its list is empty. | ```object({ perimeter_name = string mode = optional(string, "dry_run") environments = optional(list(string), ["production", "common"]) ingress_rules = optional(map(object({ identities = optional(list(string), []) identity_type = optional(string) source_access_levels = optional(list(string), ["*"]) source_resources = optional(list(string), []) operations = optional(map(list(string)), { "*" = [] }) })), {}) })``` | `null` | no |
 
 ## Outputs
 
 | Name | Description |
 | ---- | ----------- |
 | budget | Resource name of the project's budget (`billingAccounts/<id>/budgets/<id>`). |
+| perimeter\_member | Whether the project was added to the VPC Service Controls perimeter. |
 | project\_id | ID of the project. |
 | project\_number | Number of the project. |
 <!-- markdownlint-restore -->

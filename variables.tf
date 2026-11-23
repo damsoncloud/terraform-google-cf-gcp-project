@@ -170,3 +170,54 @@ variable "billing_disabler" {
     error_message = "The billing_disabler topic must be `projects/<project>/topics/<name>`."
   }
 }
+
+variable "vpc_service_controls" {
+  description = <<-EOT
+  The VPC Service Controls perimeter of the production and common environments, e.g. of cf-organization's vpc-service-controls submodule; not used when null:
+    `perimeter_name`, the perimeter's resource name, e.g. the submodule's `perimeter_name` output;
+    `mode`, the submodule's mode: the ingress rules are added to the dry-run configuration, and to the enforced one too when `enforced`;
+    `environments`, the folder names of the environments in the perimeter, to whose configurations the project is added when it is in one of them;
+    `ingress_rules`, the project's ingress rules, e.g. of its integrations, by title, added when the project is in the perimeter:
+      `identities` or `identity_type` (`ANY_IDENTITY`, `ANY_USER_ACCOUNT` or `ANY_SERVICE_ACCOUNT`), the principals allowed;
+      `source_access_levels`, the names of the access policy's access levels or `*` for any source, and `source_resources`, e.g. `projects/<number>`;
+      `operations`, the methods by service into the project, `*` for all services, and all methods of a service when its list is empty.
+  EOT
+  type = object({
+    perimeter_name = string
+    mode           = optional(string, "dry_run")
+    environments   = optional(list(string), ["production", "common"])
+    ingress_rules = optional(map(object({
+      identities           = optional(list(string), [])
+      identity_type        = optional(string)
+      source_access_levels = optional(list(string), ["*"])
+      source_resources     = optional(list(string), [])
+      operations           = optional(map(list(string)), { "*" = [] })
+    })), {})
+  })
+  default = null
+
+  validation {
+    condition     = var.vpc_service_controls == null || can(regex("^accessPolicies/[0-9]+/servicePerimeters/[A-Za-z0-9_]+$", var.vpc_service_controls.perimeter_name))
+    error_message = "The perimeter_name must be `accessPolicies/<id>/servicePerimeters/<name>`."
+  }
+
+  validation {
+    condition     = var.vpc_service_controls == null || contains(["dry_run", "enforced"], try(var.vpc_service_controls.mode, ""))
+    error_message = "The mode must be dry_run or enforced."
+  }
+
+  validation {
+    condition     = var.vpc_service_controls == null || try(length(setsubtract(var.vpc_service_controls.environments, keys(var.folders))) == 0, false)
+    error_message = "The perimeter's environments must be folders of `folders`."
+  }
+
+  validation {
+    condition = var.vpc_service_controls == null || try(alltrue([for rule in values(var.vpc_service_controls.ingress_rules) :
+      (length(rule.identities) > 0) != (rule.identity_type != null) &&
+      (rule.identity_type == null || contains(["ANY_IDENTITY", "ANY_USER_ACCOUNT", "ANY_SERVICE_ACCOUNT"], rule.identity_type)) &&
+      length(rule.source_access_levels) + length(rule.source_resources) > 0 &&
+      length(rule.operations) > 0
+    ]), false)
+    error_message = "Each ingress rule needs either identities or an identity_type (ANY_IDENTITY, ANY_USER_ACCOUNT or ANY_SERVICE_ACCOUNT), at least one source and at least one operation."
+  }
+}
