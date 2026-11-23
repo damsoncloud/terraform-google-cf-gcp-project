@@ -35,6 +35,9 @@ module "gcp_project" {
 
 Pin an exact version. New versions are published as immutable GitHub releases with `vX.Y.Z` tags, following [semantic versioning](https://semver.org/).
 
+See [`examples/basic`](examples/basic) for projects created with cf-hierarchy, cf-bootstrap and cf-organization, and [`examples/complete`](examples/complete) for the
+billing disabler of cf-observability, the perimeter membership with a project's ingress rule, essential contacts and custom budgets.
+
 <!-- BEGIN_TF_DOCS -->
 <!-- markdownlint-capture -->
 <!-- markdownlint-disable MD013 -->
