@@ -1,5 +1,10 @@
 variable "folders" {
-  description = "The folders by folder name, e.g. the `folders` output of cf-hierarchy: `id`, the resource name (`folders/<id>`); `short_name`, the environment's short name, null for folders other than environments; `common`, whether it is the common environment."
+  description = <<-EOT
+  The folders by folder name, e.g. the `folders` output of cf-hierarchy:
+    `id`, the resource name (`folders/<id>`);
+    `short_name`, the environment's short name, null for folders other than environments;
+    `common`, whether it is the common environment.
+  EOT
   type = map(object({
     id         = string
     short_name = optional(string)
@@ -13,7 +18,10 @@ variable "folders" {
 }
 
 variable "environment" {
-  description = "Name of the environment folder of the project, a key of `folders` with a short name, e.g. `production`. The short name prefixes the generated project ID and is the project's `environment` label."
+  description = <<-EOT
+  Name of the environment folder of the project, a key of `folders` with a short name, e.g. `production`.
+  The short name prefixes the generated project ID and is the project's `environment` label.
+  EOT
   type        = string
 
   validation {
@@ -72,7 +80,11 @@ variable "services" {
 }
 
 variable "labels" {
-  description = "Labels of the project, following the labelling strategy of the customer design document: at least `component`, `department` and `owner`, e.g. a team name or an email with `_at_` and `_` in place of `@` and dots. The `environment` label is set to the environment's short name."
+  description = <<-EOT
+  Labels of the project, following the labelling strategy of the customer design document: at least `component`, `department` and `owner`,
+  e.g. a team name or an email with `_at_` and `_` in place of `@` and dots.
+  The `environment` label is set to the environment's short name.
+  EOT
   type        = map(string)
 
   validation {
@@ -101,7 +113,10 @@ variable "deletion_policy" {
 }
 
 variable "essential_contacts" {
-  description = "Essential contacts of the project, in addition to those inherited from the organisation and its folder: the notification categories by email, e.g. `{ \"team@example.com\" = [\"TECHNICAL\", \"SECURITY\"] }`."
+  description = <<-EOT
+  Essential contacts of the project, in addition to those inherited from the organisation and its folder:
+  the notification categories by email, e.g. `{ "team@example.com" = ["TECHNICAL", "SECURITY"] }`.
+  EOT
   type        = map(list(string))
   default     = {}
   nullable    = false
@@ -132,7 +147,11 @@ variable "billing_notification_channel" {
 }
 
 variable "budget" {
-  description = "The project's budget: `amount`, in the billing account's currency; `thresholds`, the fractions of the amount alerting the billing administrators."
+  description = <<-EOT
+  The project's budget:
+    `amount`, in the billing account's currency;
+    `thresholds`, the fractions of the amount alerting the billing administrators.
+  EOT
   type = object({
     amount     = optional(number, 100)
     thresholds = optional(list(number), [0.5, 0.7, 1.0])
@@ -224,8 +243,8 @@ variable "vpc_service_controls" {
 
 variable "model_armor" {
   description = <<-EOT
-    The project's Model Armour floor setting, screening the integrated services' traffic and replacing the organisation's floor setting's filters, which it should repeat,
-    e.g. with the `model_armor` output of cf-organization; neither set nor the Model Armor API enabled when null:
+  The project's Model Armour floor setting, screening the integrated services' traffic and replacing the organisation's floor setting's filters, which it should repeat,
+  e.g. with the `model_armor` output of cf-organization; neither set nor the Model Armor API enabled when null:
     `enforcement`, whether the floor setting is enforced, without which it screens nothing;
     `integrated_services`, the screening mode, `INSPECT_AND_BLOCK` or `INSPECT_ONLY`, by integrated service: `AI_PLATFORM` (Agent Platform) and `GOOGLE_MCP_SERVER`;
     `cloud_logging`, whether the screening results are logged;
