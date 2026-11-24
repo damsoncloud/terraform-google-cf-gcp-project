@@ -7,7 +7,7 @@ module "hierarchy" {
 
 module "bootstrap" {
   source  = "damsoncloud/cf-bootstrap/google"
-  version = "0.7.0"
+  version = "0.8.0"
 
   organization_id = var.organization_id
   folders         = module.hierarchy.folders
@@ -16,7 +16,7 @@ module "bootstrap" {
 
 module "organization" {
   source  = "damsoncloud/cf-organization/google"
-  version = "0.3.0"
+  version = "0.5.0"
 
   organization_id     = var.organization_id
   domain              = var.domain
@@ -30,11 +30,16 @@ module "organization" {
   tf_plan_email                   = module.bootstrap.tf_plan_email
   tf_plan_organization_roles      = module.bootstrap.tf_plan_organization_roles
   tf_environment_emails           = module.bootstrap.tf_environment_emails
+
+  shared_vpc = {}
+  perimeter_groups = {
+    organization = ["gcp-organization-admins", "gcp-network-admins"]
+  }
 }
 
 module "vpc_service_controls" {
   source  = "damsoncloud/cf-organization/google//modules/vpc-service-controls"
-  version = "0.3.0"
+  version = "0.5.0"
 
   organization_id = var.organization_id
   mode            = var.mode
@@ -42,6 +47,8 @@ module "vpc_service_controls" {
     bootstrap      = module.bootstrap.project_number
     observability  = module.organization.observability_project_number
     api_management = module.organization.api_management_project_number
+    # The host project of the environments in the perimeter
+    shared_vpc_prod = module.organization.shared_vpc_projects["prod"].number
   }
   deployers = concat(
     [module.bootstrap.tf_bootstrap_email, module.bootstrap.tf_plan_email],
@@ -72,6 +79,29 @@ module "observability" {
   }
 }
 
+module "shared_vpc" {
+  source  = "damsoncloud/cf-shared-vpc/google"
+  version = "0.1.0"
+
+  domain        = var.domain
+  folders       = module.hierarchy.folders
+  host_projects = module.organization.shared_vpc_projects
+
+  networks = {
+    development = {
+      host_project = "nonprod"
+      subnets      = { europe-west4 = { ip_cidr_range = "10.10.0.0/24" } }
+    }
+    production = {
+      host_project = "prod"
+      subnets = {
+        europe-west4 = { ip_cidr_range = "10.30.0.0/24" }
+        europe-west1 = { ip_cidr_range = "10.30.1.0/24" }
+      }
+    }
+  }
+}
+
 # The workload projects, by name
 locals {
   projects = {
@@ -82,6 +112,8 @@ locals {
       budget           = { amount = 500 }
       billing_disabler = false
       contacts         = { "team-backend@example.com" = ["TECHNICAL", "SECURITY"] }
+      # Cloud Run's direct VPC egress into the production network
+      service_agents = ["serverless-robot-prod"]
       # The partner's uploads into the project's buckets, from its network only
       ingress_rules = {
         "Partner uploads" = {
@@ -99,6 +131,7 @@ locals {
       billing_disabler = true
       contacts         = {}
       ingress_rules    = {}
+      service_agents   = []
     }
   }
 
@@ -133,5 +166,12 @@ module "gcp_project" {
     perimeter_name = module.vpc_service_controls.perimeter_name
     mode           = var.mode
     ingress_rules  = each.value.ingress_rules
+  }
+
+  # Attached to the host project of its environment's network; the environment's deployer places resources on its subnets
+  shared_vpc = {
+    networks       = module.shared_vpc.networks
+    service_agents = each.value.service_agents
+    subnet_users   = ["serviceAccount:${module.bootstrap.tf_environment_emails[each.value.environment]}"]
   }
 }
