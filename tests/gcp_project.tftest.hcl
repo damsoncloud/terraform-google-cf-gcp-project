@@ -461,3 +461,123 @@ run "invalid_model_armor" {
 
   expect_failures = [var.model_armor]
 }
+
+run "no_shared_vpc" {
+  assert {
+    condition = (
+      length(google_compute_shared_vpc_service_project.project) == 0 &&
+      length(google_compute_subnetwork_iam_member.shared_vpc) == 0 &&
+      !contains(keys(google_project_service.services), "compute.googleapis.com") &&
+      output.shared_vpc_host_project_id == null
+    )
+    error_message = "Without shared_vpc, the project must not be attached."
+  }
+}
+
+run "shared_vpc" {
+  variables {
+    services = ["run.googleapis.com"]
+    shared_vpc = {
+      networks = {
+        development = { project_id = "cmn-shared-vpcs-nonprod-c3d4", subnets = { europe-west4 = { name = "dev-europe-west4-subnet" } } }
+        production = {
+          project_id = "cmn-shared-vpcs-prod-c3d4"
+          subnets = {
+            europe-west4 = { name = "prod-europe-west4-subnet" }
+            europe-west1 = { name = "prod-europe-west1-subnet" }
+          }
+        }
+      }
+      service_agents = ["serverless-robot-prod"]
+      subnet_users   = ["serviceAccount:tf-prod@cmn-bootstrap-a1b2.iam.gserviceaccount.com"]
+    }
+  }
+
+  assert {
+    condition = (
+      google_compute_shared_vpc_service_project.project[0].host_project == "cmn-shared-vpcs-prod-c3d4" &&
+      google_compute_shared_vpc_service_project.project[0].service_project == "prod-backend-e5f6" &&
+      toset(keys(google_project_service.services)) == toset(["run.googleapis.com", "compute.googleapis.com"]) &&
+      output.shared_vpc_host_project_id == "cmn-shared-vpcs-prod-c3d4"
+    )
+    error_message = "The project must be attached to the host project of its environment's network, with the Compute Engine API."
+  }
+
+  assert {
+    condition = (
+      toset(keys(google_compute_subnetwork_iam_member.shared_vpc)) == toset([
+        "europe-west4/cloudservices", "europe-west4/serverless-robot-prod", "europe-west4/serviceAccount:tf-prod@cmn-bootstrap-a1b2.iam.gserviceaccount.com",
+        "europe-west1/cloudservices", "europe-west1/serverless-robot-prod", "europe-west1/serviceAccount:tf-prod@cmn-bootstrap-a1b2.iam.gserviceaccount.com",
+      ]) &&
+      google_compute_subnetwork_iam_member.shared_vpc["europe-west1/cloudservices"].member == "serviceAccount:444444444444@cloudservices.gserviceaccount.com" &&
+      google_compute_subnetwork_iam_member.shared_vpc["europe-west1/serverless-robot-prod"].member == "serviceAccount:service-444444444444@serverless-robot-prod.iam.gserviceaccount.com" &&
+      google_compute_subnetwork_iam_member.shared_vpc["europe-west1/cloudservices"].subnetwork == "prod-europe-west1-subnet" &&
+      google_compute_subnetwork_iam_member.shared_vpc["europe-west1/cloudservices"].region == "europe-west1" &&
+      alltrue([for binding in google_compute_subnetwork_iam_member.shared_vpc : binding.project == "cmn-shared-vpcs-prod-c3d4" && binding.role == "roles/compute.networkUser"])
+    )
+    error_message = "The Google APIs service agent, the given service agents and subnet users must be Compute Network Users of the environment's subnets."
+  }
+}
+
+run "shared_vpc_regions" {
+  command = plan
+
+  variables {
+    shared_vpc = {
+      networks = {
+        production = {
+          project_id = "cmn-shared-vpcs-prod-c3d4"
+          subnets = {
+            europe-west4 = { name = "prod-europe-west4-subnet" }
+            europe-west1 = { name = "prod-europe-west1-subnet" }
+          }
+        }
+      }
+      regions = ["europe-west4"]
+    }
+  }
+
+  assert {
+    condition     = toset(keys(google_compute_subnetwork_iam_member.shared_vpc)) == toset(["europe-west4/cloudservices"])
+    error_message = "Only the subnets of the given regions must be granted."
+  }
+}
+
+run "shared_vpc_without_environment_network" {
+  command = plan
+
+  variables {
+    environment = "common"
+    shared_vpc = {
+      networks = {
+        production = { project_id = "cmn-shared-vpcs-prod-c3d4", subnets = { europe-west4 = { name = "prod-europe-west4-subnet" } } }
+      }
+    }
+  }
+
+  assert {
+    condition = (
+      length(google_compute_shared_vpc_service_project.project) == 0 &&
+      length(google_compute_subnetwork_iam_member.shared_vpc) == 0 &&
+      !contains(keys(google_project_service.services), "compute.googleapis.com")
+    )
+    error_message = "A project of an environment without a network must not be attached."
+  }
+}
+
+run "invalid_shared_vpc" {
+  command = plan
+
+  variables {
+    shared_vpc = {
+      networks = {
+        production = { project_id = "cmn-shared-vpcs-prod-c3d4", subnets = { europe-west4 = { name = "prod-europe-west4-subnet" } } }
+      }
+      regions        = ["europe-west1"]
+      service_agents = ["service-1@container-engine-robot.iam.gserviceaccount.com"]
+      subnet_users   = ["tf-prod@cmn-bootstrap-a1b2.iam.gserviceaccount.com"]
+    }
+  }
+
+  expect_failures = [var.shared_vpc]
+}

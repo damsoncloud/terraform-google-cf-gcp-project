@@ -10,7 +10,10 @@ Terraform module of the Damson Cloud GCP Cloud Foundations creating a single wor
 * the project's Model Armour floor setting, screening its Agent Platform and Google MCP server traffic in inspect and block mode, with the filters of the organisation's
   floor setting (cf-organization's `model_armor` output), which the project's floor setting replaces,
 * optionally, for a project in the production or common environment, its membership of the VPC Service Controls perimeter of cf-organization and the ingress rules of its
-  integrations, in the perimeter's dry-run or enforced mode.
+  integrations, in the perimeter's dry-run or enforced mode,
+* optionally, the project's attachment to the Shared VPC host project of its environment's network, created by
+  [cf-shared-vpc](https://github.com/damsoncloud/terraform-google-cf-shared-vpc), and the Compute Network User role on that network's subnets for the Google APIs service agent,
+  the given services' agents and further principals; projects of environments without a network are not attached.
 
 The calling configuration iterates over its projects.
 
@@ -61,6 +64,7 @@ billing disabler of cf-observability, the perimeter membership with a project's 
 | observability\_project\_id | ID of the Observability project, e.g. the `observability_project_id` output of cf-organization, whose metrics scope the project is added to. | `string` | n/a | yes |
 | project\_id | ID of the project, replacing the generated one, e.g. to follow another naming pattern or to keep the ID of an existing project. | `string` | `null` | no |
 | services | APIs enabled in the project, e.g. `run.googleapis.com`. They are left enabled when removed from the list. | `list(string)` | `[]` | no |
+| shared\_vpc | The Shared VPC networks, e.g. the `networks` output of cf-shared-vpc; not used when null. The project is attached to the host project of its environment's network, when there is one, and the Compute Network User role is granted on that network's subnets only, as a host project can hold the networks of several environments:   `networks` by environment folder name:     `project_id`, the host project;     `subnets` by region:       `name`;   `regions`, the regions of the subnets granted, all when null;   `service_agents`, the service agents granted the role besides the Google APIs service agent, by the first label of their domain, e.g. `container-engine-robot` for GKE or   `serverless-robot-prod` for Cloud Run, whose APIs must be in `services`;   `subnet_users`, further principals granted the role, e.g. the environment's deployer or a developers' group. | ```object({ networks = map(object({ project_id = string subnets = map(object({ name = string })) })) regions = optional(list(string)) service_agents = optional(list(string), []) subnet_users = optional(list(string), []) })``` | `null` | no |
 | vpc\_service\_controls | The VPC Service Controls perimeter of the production and common environments, e.g. of cf-organization's vpc-service-controls submodule; not used when null:   `perimeter_name`, the perimeter's resource name, e.g. the submodule's `perimeter_name` output;   `mode`, the submodule's mode: the ingress rules are added to the dry-run configuration, and to the enforced one too when `enforced`;   `environments`, the folder names of the environments in the perimeter, to whose configurations the project is added when it is in one of them;   `ingress_rules`, the project's ingress rules, e.g. of its integrations, by title, added when the project is in the perimeter:     `identities` or `identity_type` (`ANY_IDENTITY`, `ANY_USER_ACCOUNT` or `ANY_SERVICE_ACCOUNT`), the principals allowed;     `source_access_levels`, the names of the access policy's access levels or `*` for any source, and `source_resources`, e.g. `projects/<number>`;     `operations`, the methods by service into the project, `*` for all services, and all methods of a service when its list is empty. | ```object({ perimeter_name = string mode = optional(string, "dry_run") environments = optional(list(string), ["production", "common"]) ingress_rules = optional(map(object({ identities = optional(list(string), []) identity_type = optional(string) source_access_levels = optional(list(string), ["*"]) source_resources = optional(list(string), []) operations = optional(map(list(string)), { "*" = [] }) })), {}) })``` | `null` | no |
 
 ## Outputs
@@ -71,6 +75,7 @@ billing disabler of cf-observability, the perimeter membership with a project's 
 | perimeter\_member | Whether the project was added to the VPC Service Controls perimeter. |
 | project\_id | ID of the project. |
 | project\_number | Number of the project. |
+| shared\_vpc\_host\_project\_id | ID of the Shared VPC host project the project is attached to; null when not attached. |
 <!-- markdownlint-restore -->
 <!-- END_TF_DOCS -->
 

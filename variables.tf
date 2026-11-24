@@ -286,3 +286,49 @@ variable "model_armor" {
     error_message = "Each model_armor Responsible AI filter must be SEXUALLY_EXPLICIT, HATE_SPEECH, HARASSMENT or DANGEROUS."
   }
 }
+
+variable "shared_vpc" {
+  description = <<-EOT
+  The Shared VPC networks, e.g. the `networks` output of cf-shared-vpc; not used when null.
+  The project is attached to the host project of its environment's network, when there is one, and the Compute Network User role is granted on that network's subnets only,
+  as a host project can hold the networks of several environments:
+    `networks` by environment folder name:
+      `project_id`, the host project;
+      `subnets` by region:
+        `name`;
+    `regions`, the regions of the subnets granted, all when null;
+    `service_agents`, the service agents granted the role besides the Google APIs service agent, by the first label of their domain, e.g. `container-engine-robot` for GKE or
+    `serverless-robot-prod` for Cloud Run, whose APIs must be in `services`;
+    `subnet_users`, further principals granted the role, e.g. the environment's deployer or a developers' group.
+  EOT
+  type = object({
+    networks = map(object({
+      project_id = string
+      subnets = map(object({
+        name = string
+      }))
+    }))
+    regions        = optional(list(string))
+    service_agents = optional(list(string), [])
+    subnet_users   = optional(list(string), [])
+  })
+  default = null
+
+  validation {
+    condition = var.shared_vpc == null || try(
+      var.shared_vpc.regions == null || length(setsubtract(var.shared_vpc.regions, keys(var.shared_vpc.networks[var.environment].subnets))) == 0,
+      false
+    )
+    error_message = "The shared_vpc regions must be regions of the subnets of the project's environment's network."
+  }
+
+  validation {
+    condition     = var.shared_vpc == null || try(alltrue([for name in var.shared_vpc.service_agents : can(regex("^[a-z][a-z0-9-]*[a-z0-9]$", name))]), false)
+    error_message = "Each shared_vpc service agent must be the first label of its domain, e.g. container-engine-robot."
+  }
+
+  validation {
+    condition     = var.shared_vpc == null || try(alltrue([for member in var.shared_vpc.subnet_users : can(regex("^(user|group|serviceAccount|principal|principalSet):.+$", member))]), false)
+    error_message = "Each shared_vpc subnet user must be a member, e.g. `group:<email>` or `serviceAccount:<email>`."
+  }
+}

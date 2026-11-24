@@ -1,6 +1,9 @@
 locals {
   short_name = var.folders[var.environment].short_name
   project_id = coalesce(var.project_id, "${local.short_name}-${var.name}-${random_id.suffix.hex}")
+
+  # A Shared VPC service project needs the Compute Engine API
+  services = toset(concat(var.services, local.shared_vpc_network == null ? [] : ["compute.googleapis.com"]))
 }
 
 # Makes the globally unique generated project ID unique
@@ -26,7 +29,7 @@ resource "google_project" "project" {
 }
 
 resource "google_project_service" "services" {
-  for_each = toset(var.services)
+  for_each = local.services
 
   project            = google_project.project.project_id
   service            = each.key
